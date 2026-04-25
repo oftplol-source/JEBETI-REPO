@@ -570,14 +570,51 @@ local function GetDealerInfo(model)
     return nil
 end
 
-if makefolder then 
-    pcall(makefolder, "Jebe")
-    pcall(makefolder, "Jebe/Configs")
-    pcall(makefolder, "Jebe/Fonts")
-    pcall(makefolder, "Jebe/Images")
-    pcall(makefolder, "Jebe/Sounds")
-    pcall(makefolder, "Jebe/Sounds/Hitsounds")
-    pcall(makefolder, "Jebe/Sounds/Killsounds")
+-- Folder Management System
+local FolderStructure = {
+    "Jebe",
+    "Jebe/Configs",
+    "Jebe/Fonts",
+    "Jebe/Images",
+    "Jebe/Sounds",
+    "Jebe/Sounds/Hitsounds",
+    "Jebe/Sounds/Killsounds"
+}
+
+local function EnsureFoldersExist()
+    if not makefolder or not isfolder then
+        if Logs then warn("Jebe: Folder functions not supported by executor") end
+        return false
+    end
+    
+    local allCreated = true
+    for _, folderPath in ipairs(FolderStructure) do
+        if not isfolder(folderPath) then
+            local success, err = pcall(function()
+                makefolder(folderPath)
+            end)
+            
+            if success then
+                if Logs then print("Jebe: Created folder: " .. folderPath) end
+            else
+                if Logs then warn("Jebe: Failed to create folder: " .. folderPath .. " - " .. tostring(err)) end
+                allCreated = false
+            end
+        else
+            if Logs then print("Jebe: Folder exists: " .. folderPath) end
+        end
+    end
+    
+    return allCreated
+end
+
+-- Create/verify folders on every execution
+local foldersReady = EnsureFoldersExist()
+
+if foldersReady then
+    if Logs then print("Jebe: All folders verified/created successfully") end
+else
+    if Logs then warn("Jebe: Some folders could not be created - some features may not work") end
 end
 
 local function LoadAsset(path)
@@ -959,6 +996,13 @@ local function ProcessObject(obj, text, color, categoryEnabled)
         drawings.Box.outlineBox.Visible = false
         drawings.Name.Visible = false
         drawings.Dist.Visible = false
+    end
+end
+
+-- Initialize ESP for existing players
+for _, player in ipairs(game:GetService("Players"):GetPlayers()) do
+    if player ~= LocalPlayer then
+        AddPlayerESP(player)
     end
 end
 
@@ -2946,6 +2990,256 @@ table.insert(Connections, RunService.RenderStepped:Connect(function()
     UpdateSilentAimCircle()
 end))
 
+-- Melee Aura System
+local MeleeAura = {
+    Enabled = false,
+    Distance = 15,
+    ShowAnimation = true,
+    CheckTeam = false,
+    CurrentTarget = nil
+}
+
+local function GetMeleeTarget()
+    if not MeleeAura.Enabled then return nil end
+    
+    local char = LocalPlayer.Character
+    if not char or not char:FindFirstChild("HumanoidRootPart") then return nil end
+    local hrp = char.HumanoidRootPart
+    
+    local closestPlayer = nil
+    local closestDist = MeleeAura.Distance
+    
+    for _, player in pairs(game:GetService("Players"):GetPlayers()) do
+        if player ~= LocalPlayer and player.Character then
+            local targetHRP = player.Character:FindFirstChild("HumanoidRootPart")
+            local targetHum = player.Character:FindFirstChildOfClass("Humanoid")
+            
+            if targetHRP and targetHum and targetHum.Health > 0 then
+                -- Team check
+                if MeleeAura.CheckTeam and player.Team == LocalPlayer.Team then
+                    goto continue
+                end
+                
+                -- ForceField check
+                if player.Character:FindFirstChildOfClass("ForceField") then
+                    goto continue
+                end
+                
+                local dist = (hrp.Position - targetHRP.Position).Magnitude
+                if dist < closestDist then
+                    closestDist = dist
+                    closestPlayer = player
+                end
+            end
+            ::continue::
+        end
+    end
+    
+    return closestPlayer
+end
+
+-- Melee Aura loop
+local LastMeleeAttack = 0
+local MeleeAttackCooldown = 0.35
+
+table.insert(Connections, RunService.Heartbeat:Connect(function()
+    if not MeleeAura.Enabled then return end
+    
+    local char = LocalPlayer.Character
+    if not char then return end
+    
+    local tool = char:FindFirstChildOfClass("Tool")
+    if not tool then return end
+    
+    -- Check if it's a melee weapon (no Config means it's melee in Criminality)
+    local config = tool:FindFirstChild("Config")
+    if config then return end -- Skip guns
+    
+    local target = GetMeleeTarget()
+    MeleeAura.CurrentTarget = target
+    
+    if target and target.Character then
+        local now = tick()
+        if now - LastMeleeAttack < MeleeAttackCooldown then return end
+        
+        -- Fire melee attack
+        local remote1 = game:GetService("ReplicatedStorage"):FindFirstChild("Events") and game:GetService("ReplicatedStorage").Events:FindFirstChild("XMHH.2")
+        local remote2 = game:GetService("ReplicatedStorage"):FindFirstChild("Events") and game:GetService("ReplicatedStorage").Events:FindFirstChild("XMHH2.2")
+        
+        if remote1 and remote2 then
+            local result = remote1:InvokeServer("🍞", tick(), tool, "43TRFWX", "Normal", tick(), true)
+            
+            -- Play animation
+            if MeleeAura.ShowAnimation then
+                local animFolder = tool:FindFirstChild("AnimsFolder")
+                if animFolder then
+                    local anim = animFolder:FindFirstChild("Slash1")
+                    if anim then
+                        local humanoid = char:FindFirstChildOfClass("Humanoid")
+                        if humanoid then
+                            local animator = humanoid:FindFirstChild("Animator")
+                            if animator then
+                                local track = animator:LoadAnimation(anim)
+                                track:Play(0.1, 1, 1.3)
+                            end
+                        end
+                    end
+                end
+            end
+            
+            task.wait(0.3)
+            
+            -- Hit target
+            local handle = tool:FindFirstChild("WeaponHandle") or tool:FindFirstChild("Handle")
+            if handle then
+                local targetPart = target.Character:FindFirstChild("Head") or target.Character:FindFirstChild("Torso") or target.Character:FindFirstChild("HumanoidRootPart")
+                if targetPart then
+                    local arg2 = {
+                        "🍞",
+                        tick(),
+                        tool,
+                        "2389ZFX34",
+                        result,
+                        true,
+                        handle,
+                        targetPart,
+                        target.Character,
+                        char.HumanoidRootPart.Position,
+                        targetPart.Position
+                    }
+                    remote2:FireServer(unpack(arg2))
+                    LastMeleeAttack = now
+                    PlayHitsound()
+                end
+            end
+        end
+    end
+end))
+
+-- Aimbot System
+local Aimbot = {
+    Enabled = false,
+    FOV = 100,
+    Smoothing = 0.5,
+    TargetPart = "Head",
+    CheckWalls = false,
+    CheckTeam = false,
+    DrawCircle = false,
+    CurrentTarget = nil
+}
+
+local AimbotCircle = Drawing.new("Circle")
+AimbotCircle.Thickness = 2
+AimbotCircle.NumSides = 64
+AimbotCircle.Radius = 100
+AimbotCircle.Filled = false
+AimbotCircle.Visible = false
+AimbotCircle.ZIndex = 999
+AimbotCircle.Transparency = 1
+AimbotCircle.Color = Color3.fromRGB(255, 255, 255)
+
+local function UpdateAimbotCircle()
+    if Aimbot.Enabled and Aimbot.DrawCircle then
+        local mousePos = UserInputService:GetMouseLocation()
+        AimbotCircle.Position = Vector2.new(mousePos.X, mousePos.Y)
+        AimbotCircle.Radius = Aimbot.FOV
+        AimbotCircle.Visible = true
+    else
+        AimbotCircle.Visible = false
+    end
+end
+
+local function GetAimbotTarget()
+    if not Aimbot.Enabled then return nil end
+    
+    local char = LocalPlayer.Character
+    if not char or not char:FindFirstChild("HumanoidRootPart") then return nil end
+    
+    local closestPlayer = nil
+    local closestDist = Aimbot.FOV
+    local mousePos = UserInputService:GetMouseLocation()
+    
+    for _, player in pairs(game:GetService("Players"):GetPlayers()) do
+        if player ~= LocalPlayer and player.Character then
+            local targetPart = player.Character:FindFirstChild(Aimbot.TargetPart)
+            local targetHum = player.Character:FindFirstChildOfClass("Humanoid")
+            
+            if targetPart and targetHum and targetHum.Health > 0 then
+                -- Team check
+                if Aimbot.CheckTeam and player.Team == LocalPlayer.Team then
+                    goto continue
+                end
+                
+                -- ForceField check
+                if player.Character:FindFirstChildOfClass("ForceField") then
+                    goto continue
+                end
+                
+                -- Wall check
+                if Aimbot.CheckWalls then
+                    local ray = Ray.new(workspace.CurrentCamera.CFrame.Position, (targetPart.Position - workspace.CurrentCamera.CFrame.Position).Unit * 1000)
+                    local hit, pos = workspace:FindPartOnRayWithIgnoreList(ray, {char, player.Character})
+                    if hit then
+                        goto continue
+                    end
+                end
+                
+                local screenPos, onScreen = workspace.CurrentCamera:WorldToViewportPoint(targetPart.Position)
+                if onScreen then
+                    local dist = (Vector2.new(mousePos.X, mousePos.Y) - Vector2.new(screenPos.X, screenPos.Y)).Magnitude
+                    if dist < closestDist then
+                        closestDist = dist
+                        closestPlayer = player
+                    end
+                end
+            end
+            ::continue::
+        end
+    end
+    
+    return closestPlayer
+end
+
+-- Aimbot loop
+local AimbotActive = false
+
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed then return end
+    if input.UserInputType == Enum.UserInputType.MouseButton2 then
+        AimbotActive = true
+    end
+end)
+
+UserInputService.InputEnded:Connect(function(input, gameProcessed)
+    if input.UserInputType == Enum.UserInputType.MouseButton2 then
+        AimbotActive = false
+        Aimbot.CurrentTarget = nil
+    end
+end)
+
+table.insert(Connections, RunService.RenderStepped:Connect(function()
+    UpdateAimbotCircle()
+    
+    if not Aimbot.Enabled or not AimbotActive then return end
+    
+    local target = GetAimbotTarget()
+    Aimbot.CurrentTarget = target
+    
+    if target and target.Character then
+        local targetPart = target.Character:FindFirstChild(Aimbot.TargetPart)
+        if targetPart then
+            local targetPos = targetPart.Position
+            local camera = workspace.CurrentCamera
+            local currentCFrame = camera.CFrame
+            local targetCFrame = CFrame.new(currentCFrame.Position, targetPos)
+            
+            -- Apply smoothing
+            local newCFrame = currentCFrame:Lerp(targetCFrame, Aimbot.Smoothing)
+            camera.CFrame = newCFrame
+        end
+    end
+end))
+
 -- Killsound detection - monitor when players die
 for _, player in ipairs(game:GetService("Players"):GetPlayers()) do
     if player ~= LocalPlayer then
@@ -2995,6 +3289,56 @@ Group:CreateSlider("field of view", 0, 20, 7.0, 1, function() end)
 Group:CreateDropdown("target selection", {"distance", "fov", "health"}, "distance", function() end)
 Group:CreateDropdown("hitscan", {"-", "head", "body", "all"}, "-", function() end)
 
+-- Melee Aura UI
+local MeleeAuraGroup = Legit:CreateGroupbox("melee aura", "left")
+
+MeleeAuraGroup:CreateToggle("enabled", false, function(state)
+    MeleeAura.Enabled = state
+end)
+
+MeleeAuraGroup:CreateSlider("distance", 5, 30, 15, 0, function(value)
+    MeleeAura.Distance = value
+end)
+
+MeleeAuraGroup:CreateToggle("show animation", true, function(state)
+    MeleeAura.ShowAnimation = state
+end)
+
+MeleeAuraGroup:CreateToggle("team check", false, function(state)
+    MeleeAura.CheckTeam = state
+end)
+
+-- Aimbot UI
+local AimbotGroup = Legit:CreateGroupbox("aimbot", "left")
+
+AimbotGroup:CreateToggle("enabled", false, function(state)
+    Aimbot.Enabled = state
+end)
+
+AimbotGroup:CreateToggle("draw fov circle", false, function(state)
+    Aimbot.DrawCircle = state
+end)
+
+AimbotGroup:CreateSlider("field of view", 10, 300, 100, 0, function(value)
+    Aimbot.FOV = value
+end)
+
+AimbotGroup:CreateSlider("smoothing", 0.1, 1, 0.5, 2, function(value)
+    Aimbot.Smoothing = value
+end)
+
+AimbotGroup:CreateDropdown("target part", {"Head", "Torso", "HumanoidRootPart"}, "Head", function(value)
+    Aimbot.TargetPart = value
+end)
+
+AimbotGroup:CreateToggle("check walls", false, function(state)
+    Aimbot.CheckWalls = state
+end)
+
+AimbotGroup:CreateToggle("team check", false, function(state)
+    Aimbot.CheckTeam = state
+end)
+
 -- Silent Aim UI
 local SilentAimGroup = Legit:CreateGroupbox("silent aim", "right")
 
@@ -3036,6 +3380,30 @@ SilentAimGroup:CreateDropdown("target part", {"Closest", "Random", "Head", "Tors
 end)
 
 local ConfigGroup = Config:CreateGroupbox("menu settings", "left")
+
+-- Folder Management Section
+ConfigGroup:CreateButton("verify folders", function()
+    local result = EnsureFoldersExist()
+    if result then
+        Library:Notify("all folders verified successfully", 3)
+    else
+        Library:Notify("some folders failed - check console", 4)
+    end
+end)
+
+ConfigGroup:CreateButton("open workspace folder", function()
+    if Logs then
+        print("Jebe: Workspace folder location:")
+        print("  Look for 'workspace' or 'bin/workspace' in your executor folder")
+        print("  Then navigate to: workspace/Jebe/")
+        print("")
+        print("Folder structure:")
+        for _, folder in ipairs(FolderStructure) do
+            print("  - " .. folder)
+        end
+    end
+    Library:Notify("check console for folder location", 4)
+end)
 
 ConfigGroup:CreateToggle("logs", false, function(state)
     Logs = state
@@ -3120,6 +3488,29 @@ end)
 
 -- Config Management
 local ConfigManageGroup = Config:CreateGroupbox("config management", "right")
+
+-- Display folder status
+local folderStatusText = foldersReady and "✓ folders ready" or "⚠ folders incomplete"
+ConfigManageGroup:CreateButton(folderStatusText, function()
+    local status = {}
+    if isfolder then
+        for _, folder in ipairs(FolderStructure) do
+            local exists = isfolder(folder)
+            table.insert(status, (exists and "✓" or "✗") .. " " .. folder)
+        end
+        
+        if Logs then
+            print("Jebe: Folder Status:")
+            for _, line in ipairs(status) do
+                print("  " .. line)
+            end
+        end
+        
+        Library:Notify("folder status printed to console", 3)
+    else
+        Library:Notify("isfolder not supported", 3)
+    end
+end)
 
 local ConfigNameInput = ""
 ConfigManageGroup:CreateTextbox("config name", "default", function(text)
@@ -3845,6 +4236,421 @@ task.spawn(function()
         end
         for _, dealer in pairs(shopz:GetChildren()) do checkCope(dealer) end
         table.insert(Connections, shopz.ChildAdded:Connect(checkCope))
+    end
+end)
+
+-- Character Modifications
+local CharacterMods = {
+    WalkspeedEnabled = false,
+    WalkspeedValue = 35,
+    NoclipEnabled = false,
+    InfiniteStaminaEnabled = false,
+    NoJumpCooldown = false,
+    NoFallDamage = false,
+    NoRagdoll = false
+}
+
+local CharacterGroup = Misc:CreateGroupbox("character", "right")
+
+CharacterGroup:CreateToggle("walkspeed", false, function(state)
+    CharacterMods.WalkspeedEnabled = state
+end)
+
+CharacterGroup:CreateSlider("speed", 16, 100, 35, 0, function(value)
+    CharacterMods.WalkspeedValue = value
+end)
+
+CharacterGroup:CreateToggle("noclip", false, function(state)
+    CharacterMods.NoclipEnabled = state
+end)
+
+CharacterGroup:CreateToggle("infinite stamina", false, function(state)
+    CharacterMods.InfiniteStaminaEnabled = state
+end)
+
+CharacterGroup:CreateToggle("no jump cooldown", false, function(state)
+    CharacterMods.NoJumpCooldown = state
+end)
+
+CharacterGroup:CreateToggle("no fall damage", false, function(state)
+    CharacterMods.NoFallDamage = state
+end)
+
+CharacterGroup:CreateToggle("no ragdoll", false, function(state)
+    CharacterMods.NoRagdoll = state
+end)
+
+-- Character mods loop
+table.insert(Connections, RunService.Heartbeat:Connect(function()
+    local char = LocalPlayer.Character
+    if not char then return end
+    
+    local humanoid = char:FindFirstChildOfClass("Humanoid")
+    if not humanoid then return end
+    
+    -- Walkspeed
+    if CharacterMods.WalkspeedEnabled then
+        humanoid.WalkSpeed = CharacterMods.WalkspeedValue
+    end
+    
+    -- Noclip
+    if CharacterMods.NoclipEnabled then
+        for _, part in pairs(char:GetDescendants()) do
+            if part:IsA("BasePart") and part.CanCollide then
+                part.CanCollide = false
+            end
+        end
+    end
+    
+    -- Infinite Stamina (Criminality specific)
+    if CharacterMods.InfiniteStaminaEnabled then
+        local stamina = char:FindFirstChild("Stamina")
+        if stamina and stamina:IsA("NumberValue") then
+            stamina.Value = 100
+        end
+    end
+end))
+
+-- Gun Modifications
+local GunMods = {
+    Enabled = false,
+    NoRecoil = false,
+    NoSpread = false,
+    FastEquip = false,
+    FireRateMultiplier = 1,
+    AutomaticAll = false
+}
+
+local GunModsGroup = Misc:CreateGroupbox("gun mods", "left")
+
+GunModsGroup:CreateToggle("enabled", false, function(state)
+    GunMods.Enabled = state
+end)
+
+GunModsGroup:CreateToggle("no recoil", false, function(state)
+    GunMods.NoRecoil = state
+end)
+
+GunModsGroup:CreateToggle("no spread", false, function(state)
+    GunMods.NoSpread = state
+end)
+
+GunModsGroup:CreateToggle("fast equip", false, function(state)
+    GunMods.FastEquip = state
+end)
+
+GunModsGroup:CreateToggle("automatic all", false, function(state)
+    GunMods.AutomaticAll = state
+end)
+
+GunModsGroup:CreateSlider("firerate multiplier", 1, 5, 1, 1, function(value)
+    GunMods.FireRateMultiplier = value
+end)
+
+-- Gun mods implementation (hook into gun config)
+local FakeConfig = {}
+local RealConfig = game:GetService("ReplicatedStorage"):FindFirstChild("Modules") and game:GetService("ReplicatedStorage").Modules:FindFirstChild("Config")
+
+if RealConfig then
+    function FakeConfig.GetConfig(NIL, Tool)
+        local GunSettings = {}
+        
+        for Setting, Value in pairs(require(Tool:WaitForChild("Config"))) do
+            if GunMods.Enabled then
+                if Setting == "Recoil" and GunMods.NoRecoil then
+                    Value = 0
+                end
+                if Setting == "Spread" and GunMods.NoSpread then
+                    Value = 0
+                end
+                if Setting == "EquipTime" and GunMods.FastEquip then
+                    Value = 0.1
+                end
+                if Setting == "FireRate" then
+                    Value = Value * GunMods.FireRateMultiplier
+                end
+                if Setting == "Auto" and GunMods.AutomaticAll then
+                    Value = true
+                end
+            end
+            
+            GunSettings[Setting] = Value
+        end
+        
+        return GunSettings
+    end
+    
+    local OldRequire
+    OldRequire = hookfunction(require, function(module, ...)
+        if module == RealConfig then
+            return FakeConfig
+        end
+        return OldRequire(module, ...)
+    end)
+end
+
+-- Auto Pickup
+local AutoPickup = {
+    Enabled = false,
+    PickupCash = false,
+    PickupPiles = false,
+    LastPickup = 0,
+    Cooldown = 5.1
+}
+
+local AutoPickupGroup = Misc:CreateGroupbox("auto pickup", "right")
+
+AutoPickupGroup:CreateToggle("enabled", false, function(state)
+    AutoPickup.Enabled = state
+end)
+
+AutoPickupGroup:CreateToggle("cash", false, function(state)
+    AutoPickup.PickupCash = state
+end)
+
+AutoPickupGroup:CreateToggle("piles", false, function(state)
+    AutoPickup.PickupPiles = state
+end)
+
+-- Auto pickup loop
+local PilePickup = game:GetService("ReplicatedStorage"):FindFirstChild("Events") and game:GetService("ReplicatedStorage").Events:FindFirstChild("PIC_PU")
+local CashPickup = game:GetService("ReplicatedStorage"):FindFirstChild("Events") and game:GetService("ReplicatedStorage").Events:FindFirstChild("CZDPZUS")
+
+if PilePickup and CashPickup then
+    table.insert(Connections, RunService.Heartbeat:Connect(function()
+        if not AutoPickup.Enabled then return end
+        if tick() - AutoPickup.LastPickup < AutoPickup.Cooldown then return end
+        
+        local char = LocalPlayer.Character
+        if not char or not char:FindFirstChild("HumanoidRootPart") then return end
+        local hrp = char.HumanoidRootPart
+        
+        local found = false
+        
+        -- Pickup piles
+        if AutoPickup.PickupPiles then
+            local piles = workspace:FindFirstChild("Filter") and workspace.Filter:FindFirstChild("SpawnedPiles")
+            if piles then
+                for _, pile in pairs(piles:GetChildren()) do
+                    local mainPart = pile:FindFirstChild("MeshPart")
+                    if mainPart then
+                        local dist = (hrp.Position - mainPart.Position).Magnitude
+                        if dist < 7 then
+                            PilePickup:FireServer(mainPart)
+                            found = true
+                            break
+                        end
+                    end
+                end
+            end
+        end
+        
+        -- Pickup cash
+        if AutoPickup.PickupCash and not found then
+            local cash = workspace:FindFirstChild("Filter") and workspace.Filter:FindFirstChild("SpawnedBread")
+            if cash then
+                for _, money in pairs(cash:GetChildren()) do
+                    local dist = (hrp.Position - money.Position).Magnitude
+                    if dist < 7 then
+                        CashPickup:FireServer(money)
+                        found = true
+                        break
+                    end
+                end
+            end
+        end
+        
+        if found then
+            AutoPickup.LastPickup = tick()
+        end
+    end))
+end
+
+-- Hitbox Expander
+local HitboxExpander = {
+    Enabled = false,
+    Size = 10,
+    Transparency = 0.5
+}
+
+local HitboxGroup = Misc:CreateGroupbox("hitbox expander", "left")
+
+HitboxGroup:CreateToggle("enabled", false, function(state)
+    HitboxExpander.Enabled = state
+end)
+
+HitboxGroup:CreateSlider("size", 1, 20, 10, 0, function(value)
+    HitboxExpander.Size = value
+end)
+
+HitboxGroup:CreateSlider("transparency", 0, 1, 0.5, 2, function(value)
+    HitboxExpander.Transparency = value
+end)
+
+-- Hitbox expander loop
+table.insert(Connections, RunService.Heartbeat:Connect(function()
+    if not HitboxExpander.Enabled then return end
+    
+    for _, player in pairs(game:GetService("Players"):GetPlayers()) do
+        if player ~= LocalPlayer and player.Character then
+            local hrp = player.Character:FindFirstChild("HumanoidRootPart")
+            if hrp then
+                hrp.Size = Vector3.new(HitboxExpander.Size, HitboxExpander.Size, HitboxExpander.Size)
+                hrp.Transparency = HitboxExpander.Transparency
+                hrp.CanCollide = false
+            end
+        end
+    end
+end))
+
+-- FOV Changer
+local FOVChanger = {
+    Enabled = false,
+    FOV = 90
+}
+
+local FOVGroup = Misc:CreateGroupbox("fov changer", "right")
+
+FOVGroup:CreateToggle("enabled", false, function(state)
+    FOVChanger.Enabled = state
+    if not state then
+        workspace.CurrentCamera.FieldOfView = 70
+    end
+end)
+
+FOVGroup:CreateSlider("field of view", 30, 120, 90, 0, function(value)
+    FOVChanger.FOV = value
+end)
+
+-- FOV changer loop
+table.insert(Connections, RunService.RenderStepped:Connect(function()
+    if FOVChanger.Enabled then
+        workspace.CurrentCamera.FieldOfView = FOVChanger.FOV
+    end
+end))
+
+-- Extended Zoom
+local ExtendedZoom = {
+    Enabled = false,
+    MaxDistance = 50
+}
+
+local ZoomGroup = Misc:CreateGroupbox("extended zoom", "left")
+
+ZoomGroup:CreateToggle("enabled", false, function(state)
+    ExtendedZoom.Enabled = state
+    if state then
+        LocalPlayer.CameraMaxZoomDistance = ExtendedZoom.MaxDistance
+    else
+        LocalPlayer.CameraMaxZoomDistance = 8
+    end
+end)
+
+ZoomGroup:CreateSlider("max distance", 8, 200, 50, 0, function(value)
+    ExtendedZoom.MaxDistance = value
+    if ExtendedZoom.Enabled then
+        LocalPlayer.CameraMaxZoomDistance = value
+    end
+end)
+
+-- Fullbright
+local Fullbright = {
+    Enabled = false
+}
+
+local LightingGroup = Misc:CreateGroupbox("lighting", "right")
+
+LightingGroup:CreateToggle("fullbright", false, function(state)
+    Fullbright.Enabled = state
+    if state then
+        game:GetService("Lighting").Brightness = 2
+        game:GetService("Lighting").ClockTime = 14
+        game:GetService("Lighting").FogEnd = 100000
+        game:GetService("Lighting").GlobalShadows = false
+        game:GetService("Lighting").OutdoorAmbient = Color3.fromRGB(128, 128, 128)
+    else
+        game:GetService("Lighting").Brightness = 1
+        game:GetService("Lighting").ClockTime = 12
+        game:GetService("Lighting").FogEnd = 100000
+        game:GetService("Lighting").GlobalShadows = true
+        game:GetService("Lighting").OutdoorAmbient = Color3.fromRGB(70, 70, 70)
+    end
+end)
+
+LightingGroup:CreateToggle("no fog", false, function(state)
+    if state then
+        game:GetService("Lighting").FogEnd = 100000
+    else
+        game:GetService("Lighting").FogEnd = 500
+    end
+end)
+
+-- Cleanup on script unload
+local function Cleanup()
+    for _, conn in pairs(Connections) do
+        if conn and conn.Disconnect then
+            pcall(function() conn:Disconnect() end)
+        end
+    end
+    
+    -- Remove all ESP drawings
+    for _, obj in pairs(ESP.allDrawingObjects) do
+        pcall(function() obj:Remove() end)
+    end
+    
+    -- Remove all world ESP drawings
+    for obj, _ in pairs(WorldESP.Objects) do
+        RemoveWorldDrawings(obj)
+    end
+    
+    -- Remove player ESP
+    for player, _ in pairs(ESP.Players) do
+        RemovePlayerESP(player)
+    end
+    
+    -- Stop freecam if running
+    if fcRunning then
+        StopFreecam()
+    end
+    
+    -- Reset camera
+    workspace.CurrentCamera.FieldOfView = 70
+    LocalPlayer.CameraMaxZoomDistance = 8
+    
+    -- Reset lighting
+    game:GetService("Lighting").Brightness = 1
+    game:GetService("Lighting").ClockTime = 12
+    game:GetService("Lighting").FogEnd = 100000
+    game:GetService("Lighting").GlobalShadows = true
+    
+    if Logs then print("Jebe: Cleaned up successfully") end
+end
+
+-- Register cleanup
+if syn and syn.on_script_unload then
+    syn.on_script_unload(Cleanup)
+end
+
+-- Startup notification with folder info
+task.spawn(function()
+    task.wait(1) -- Wait for UI to load
+    
+    Library:Notify("jebe.lua loaded successfully", 3)
+    
+    if foldersReady then
+        task.wait(3)
+        Library:Notify("folders ready in workspace/Jebe/", 4)
+    else
+        task.wait(3)
+        Library:Notify("warning: some folders failed to create", 5)
+    end
+    
+    if Logs then 
+        print("Jebe: Script loaded for Criminality")
+        print("Jebe: Folder structure:")
+        for _, folder in ipairs(FolderStructure) do
+            print("  - " .. folder)
+        end
     end
 end)
 
