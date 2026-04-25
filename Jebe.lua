@@ -1,9 +1,29 @@
+-- Jebe.lua v2.0.0 - Complete Criminality Script
+-- Automatic folder system, 50+ features, zero setup required
+
 local Library = {}
 
-local UserInputService = game:GetService("UserInputService")
-local TweenService = game:GetService("TweenService")
-local RunService = game:GetService("RunService")
-local LocalPlayer = game:GetService("Players").LocalPlayer
+-- Wait for game to load
+repeat task.wait() until game:IsLoaded()
+
+-- Get services safely
+local success, UserInputService = pcall(function() return game:GetService("UserInputService") end)
+if not success then error("Failed to get UserInputService") end
+
+local success, TweenService = pcall(function() return game:GetService("TweenService") end)
+if not success then error("Failed to get TweenService") end
+
+local success, RunService = pcall(function() return game:GetService("RunService") end)
+if not success then error("Failed to get RunService") end
+
+-- Wait for LocalPlayer to exist
+local Players = game:GetService("Players")
+repeat task.wait() until Players.LocalPlayer
+local LocalPlayer = Players.LocalPlayer
+
+-- Wait for character
+repeat task.wait() until LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+
 local Mouse = LocalPlayer:GetMouse()
 
 local CoreGui = (gethui and gethui()) or game:GetService("CoreGui")
@@ -106,6 +126,129 @@ local SoundSystem = {
 local ConfigSystem = {
     CurrentConfig = "default"
 }
+
+-- Initialize main tables BEFORE config functions to prevent nil errors
+local ESP = {
+    Enabled = false,
+    Boxes = false,
+    Names = false,
+    Distances = false,
+    HealthBars = false,
+    Images = false,
+    ImageTransparency = 0,
+    TeamCheck = false,
+    BoxColor = Color3.fromRGB(255, 255, 255),
+    NameColor = Color3.fromRGB(255, 255, 255),
+    DistColor = Color3.fromRGB(255, 255, 255),
+    HealthLowColor = Color3.fromRGB(255, 100, 100),
+    HealthFullColor = Color3.fromRGB(100, 255, 100),
+    Players = {},
+    allDrawingObjects = {}
+}
+
+local WorldESP = {
+    Enabled = false,
+    Dealers = false,
+    RebelDealer = false,
+    Airdrops = false,
+    RareCrates = false,
+    CopeCoins = false,
+    MysteryBoxes = false,
+    Names = false,
+    Distances = false,
+    DealerColor = Color3.fromRGB(100, 200, 255),
+    RebelColor = Color3.fromRGB(0, 255, 0),
+    AirdropColor = Color3.fromRGB(150, 30, 255),
+    RareCrateColor = Color3.fromRGB(255, 0, 0),
+    CopeCoinColor = Color3.fromRGB(150, 255, 0),
+    MysteryBoxColor = Color3.fromRGB(255, 255, 0),
+    Objects = {},
+    SpecificDealers = {}
+}
+
+local SilentAim = {
+    Enabled = false,
+    FOV = 100,
+    TargetPart = "Head",
+    HitChance = 100,
+    UseHitChance = false,
+    Wallbang = false,
+    CheckTeam = false,
+    DrawCircle = false,
+    CircleColor = Color3.fromRGB(255, 255, 255),
+    CurrentTarget = nil,
+    Task = nil,
+    VisualizeConnection = nil
+}
+
+local MeleeAura = {
+    Enabled = false,
+    Distance = 15,
+    ShowAnimation = true,
+    CheckTeam = false,
+    CurrentTarget = nil
+}
+
+local Aimbot = {
+    Enabled = false,
+    FOV = 100,
+    Smoothing = 0.5,
+    TargetPart = "Head",
+    CheckWalls = false,
+    CheckTeam = false,
+    DrawCircle = false,
+    CurrentTarget = nil
+}
+
+local CharacterMods = {
+    WalkspeedEnabled = false,
+    WalkspeedValue = 35,
+    NoclipEnabled = false,
+    InfiniteStaminaEnabled = false,
+    NoJumpCooldown = false,
+    NoFallDamage = false,
+    NoRagdoll = false
+}
+
+local GunMods = {
+    Enabled = false,
+    NoRecoil = false,
+    NoSpread = false,
+    FastEquip = false,
+    FireRateMultiplier = 1,
+    AutomaticAll = false
+}
+
+local AutoPickup = {
+    Enabled = false,
+    PickupCash = false,
+    PickupPiles = false,
+    LastPickup = 0,
+    Cooldown = 5.1
+}
+
+local HitboxExpander = {
+    Enabled = false,
+    Size = 10,
+    Transparency = 0.5
+}
+
+local FOVChanger = {
+    Enabled = false,
+    FOV = 90
+}
+
+local ExtendedZoom = {
+    Enabled = false,
+    MaxDistance = 50
+}
+
+local Fullbright = {
+    Enabled = false
+}
+
+-- Placeholder for image file selection
+local SelectedImageFile = "image.png"
 
 local function GetDefaultConfig()
     return {
@@ -500,43 +643,7 @@ local function LoadKillsound(soundName)
     end
 end
 
-local ESP = {
-    Enabled = false,
-    Boxes = false,
-    Names = false,
-    Distances = false,
-    HealthBars = false,
-    Images = false,
-    ImageTransparency = 0,
-    TeamCheck = false,
-    BoxColor = Color3.fromRGB(255, 255, 255),
-    NameColor = Color3.fromRGB(255, 255, 255),
-    DistColor = Color3.fromRGB(255, 255, 255),
-    HealthLowColor = Color3.fromRGB(255, 100, 100),
-    HealthFullColor = Color3.fromRGB(100, 255, 100),
-    Players = {},
-    allDrawingObjects = {}
-}
-
-local WorldESP = {
-    Enabled = false,
-    Dealers = false,
-    RebelDealer = false,
-    Airdrops = false,
-    RareCrates = false,
-    CopeCoins = false,
-    MysteryBoxes = false,
-    Names = false,
-    Distances = false,
-    DealerColor = Color3.fromRGB(100, 200, 255),
-    RebelColor = Color3.fromRGB(0, 255, 0),
-    AirdropColor = Color3.fromRGB(150, 30, 255),
-    RareCrateColor = Color3.fromRGB(255, 0, 0),
-    CopeCoinColor = Color3.fromRGB(150, 255, 0),
-    MysteryBoxColor = Color3.fromRGB(255, 255, 0),
-    Objects = {},
-    SpecificDealers = {}
-}
+-- ESP system already initialized at top of script
 
 local DealerConfigs = {
     Armory = {
@@ -2772,21 +2879,7 @@ for _, data in ipairs(DealerConfigs.Normal) do
     CreateDealerToggleWithStock(NormalGroup, data)
 end
 
--- Silent Aim Configuration
-local SilentAim = {
-    Enabled = false,
-    FOV = 100,
-    TargetPart = "Head",
-    HitChance = 100,
-    UseHitChance = false,
-    Wallbang = false,
-    CheckTeam = false,
-    DrawCircle = false,
-    CircleColor = Color3.fromRGB(255, 255, 255),
-    CurrentTarget = nil,
-    Task = nil,
-    VisualizeConnection = nil
-}
+-- Silent Aim Configuration already initialized at top of script
 
 -- Valid target parts
 local ValidSilentTargetParts = {"Head", "Torso", "Left Arm", "Right Arm", "Left Leg", "Right Leg"}
@@ -2990,14 +3083,7 @@ table.insert(Connections, RunService.RenderStepped:Connect(function()
     UpdateSilentAimCircle()
 end))
 
--- Melee Aura System
-local MeleeAura = {
-    Enabled = false,
-    Distance = 15,
-    ShowAnimation = true,
-    CheckTeam = false,
-    CurrentTarget = nil
-}
+-- Melee Aura System already initialized at top of script
 
 local function GetMeleeTarget()
     if not MeleeAura.Enabled then return nil end
@@ -3116,17 +3202,7 @@ table.insert(Connections, RunService.Heartbeat:Connect(function()
     end
 end))
 
--- Aimbot System
-local Aimbot = {
-    Enabled = false,
-    FOV = 100,
-    Smoothing = 0.5,
-    TargetPart = "Head",
-    CheckWalls = false,
-    CheckTeam = false,
-    DrawCircle = false,
-    CurrentTarget = nil
-}
+-- Aimbot System already initialized at top of script
 
 local AimbotCircle = Drawing.new("Circle")
 AimbotCircle.Thickness = 2
@@ -4239,16 +4315,7 @@ task.spawn(function()
     end
 end)
 
--- Character Modifications
-local CharacterMods = {
-    WalkspeedEnabled = false,
-    WalkspeedValue = 35,
-    NoclipEnabled = false,
-    InfiniteStaminaEnabled = false,
-    NoJumpCooldown = false,
-    NoFallDamage = false,
-    NoRagdoll = false
-}
+-- Character Modifications already initialized at top of script
 
 local CharacterGroup = Misc:CreateGroupbox("character", "right")
 
@@ -4311,15 +4378,7 @@ table.insert(Connections, RunService.Heartbeat:Connect(function()
     end
 end))
 
--- Gun Modifications
-local GunMods = {
-    Enabled = false,
-    NoRecoil = false,
-    NoSpread = false,
-    FastEquip = false,
-    FireRateMultiplier = 1,
-    AutomaticAll = false
-}
+-- Gun Modifications already initialized at top of script
 
 local GunModsGroup = Misc:CreateGroupbox("gun mods", "left")
 
@@ -4389,14 +4448,7 @@ if RealConfig then
     end)
 end
 
--- Auto Pickup
-local AutoPickup = {
-    Enabled = false,
-    PickupCash = false,
-    PickupPiles = false,
-    LastPickup = 0,
-    Cooldown = 5.1
-}
+-- Auto Pickup already initialized at top of script
 
 local AutoPickupGroup = Misc:CreateGroupbox("auto pickup", "right")
 
@@ -4466,12 +4518,7 @@ if PilePickup and CashPickup then
     end))
 end
 
--- Hitbox Expander
-local HitboxExpander = {
-    Enabled = false,
-    Size = 10,
-    Transparency = 0.5
-}
+-- Hitbox Expander already initialized at top of script
 
 local HitboxGroup = Misc:CreateGroupbox("hitbox expander", "left")
 
@@ -4503,11 +4550,7 @@ table.insert(Connections, RunService.Heartbeat:Connect(function()
     end
 end))
 
--- FOV Changer
-local FOVChanger = {
-    Enabled = false,
-    FOV = 90
-}
+-- FOV Changer already initialized at top of script
 
 local FOVGroup = Misc:CreateGroupbox("fov changer", "right")
 
@@ -4529,11 +4572,7 @@ table.insert(Connections, RunService.RenderStepped:Connect(function()
     end
 end))
 
--- Extended Zoom
-local ExtendedZoom = {
-    Enabled = false,
-    MaxDistance = 50
-}
+-- Extended Zoom already initialized at top of script
 
 local ZoomGroup = Misc:CreateGroupbox("extended zoom", "left")
 
@@ -4553,10 +4592,7 @@ ZoomGroup:CreateSlider("max distance", 8, 200, 50, 0, function(value)
     end
 end)
 
--- Fullbright
-local Fullbright = {
-    Enabled = false
-}
+-- Fullbright already initialized at top of script
 
 local LightingGroup = Misc:CreateGroupbox("lighting", "right")
 
