@@ -42,6 +42,7 @@ local RainbowAccent = false
 local AccentElements = {} -- Store all elements that use accent color
 local ToggleBoxes = {} -- Store toggle boxes with their state
 local Logs = false -- Controls all print/warn output
+local NotificationSound = true -- Controls notification sound
 
 local function UpdateAccentColor(newColor)
     Colors.Accent = newColor
@@ -1437,7 +1438,12 @@ function Library:Notify(Text, Duration)
         Sound.Volume = 0.5
         Sound.Parent = SG
     end
-    Sound:Play()
+    
+    -- Only play sound if enabled
+    if NotificationSound then
+        Sound:Play()
+    end
+    
     Label.TextColor3 = Colors.Text
     Label.TextSize = 12
     Label.TextXAlignment = Enum.TextXAlignment.Left
@@ -1455,7 +1461,8 @@ end
 function Library:CreateWindow(Title)
     local Window = {
         CurrentTab = nil,
-        Tabs = {}
+        Tabs = {},
+        OpenDropdowns = {}  -- Track all open dropdowns
     }
 
     local ScreenGui = Instance.new("ScreenGui")
@@ -1685,6 +1692,13 @@ function Library:CreateWindow(Title)
         Tab.RightY = 0
 
         local function Select()
+            -- Close all open dropdowns when switching tabs
+            for _, dropdown in ipairs(Window.OpenDropdowns) do
+                if dropdown.Close then
+                    dropdown.Close()
+                end
+            end
+            
             if Window.CurrentTab then
                 Window.CurrentTab.Page.Visible = false
                 Window.CurrentTab.Button.TextColor3 = Colors.DarkText
@@ -1775,8 +1789,10 @@ function Library:CreateWindow(Title)
             Groupbox.ElementList = ElementList
             Groupbox.Container = Container
 
-            function Groupbox:CreateToggle(Text, Default, Callback)
+            function Groupbox:CreateToggle(Text, Default, Callback, KeybindDefault, KeybindCallback, ColorDefault, ColorCallback)
                 local Toggled = Default or false
+                local HasKeybind = KeybindCallback ~= nil
+                local HasColorPicker = ColorCallback ~= nil
                 
                 local ToggleBtn = Instance.new("TextButton")
                 ToggleBtn.Name = Text .. "Toggle"
@@ -1805,7 +1821,7 @@ function Library:CreateWindow(Title)
                 Label.Parent = ToggleBtn
                 Label.BackgroundTransparency = 1
                 Label.Position = UDim2.new(0, 15, 0, 0)
-                Label.Size = UDim2.new(1, -15, 1, 0)
+                Label.Size = UDim2.new(1, (HasKeybind or HasColorPicker) and -45 or -15, 1, 0)
                 Label.Font = Font
                 Label.Text = Text:lower()
                 Label.TextColor3 = Toggled and Colors.Text or Colors.DarkText
@@ -1825,13 +1841,130 @@ function Library:CreateWindow(Title)
                     Callback(Toggled)
                 end)
 
+                -- Inline keybind button (optional)
+                local KeybindBtn, Key, Binding
+                if HasKeybind then
+                    Key = KeybindDefault
+                    Binding = false
+                    
+                    KeybindBtn = Instance.new("TextButton")
+                    KeybindBtn.Name = "KeybindBtn"
+                    KeybindBtn.Parent = ToggleBtn
+                    KeybindBtn.BackgroundColor3 = Colors.Element
+                    KeybindBtn.BorderSizePixel = 0
+                    KeybindBtn.Position = UDim2.new(1, -55, 0.5, -7)
+                    KeybindBtn.Size = UDim2.new(0, 55, 0, 14)
+                    KeybindBtn.Font = Font
+                    KeybindBtn.Text = Key and Key.Name:lower() or "none"
+                    KeybindBtn.TextColor3 = Colors.DarkText
+                    KeybindBtn.TextSize = 10
+                    KeybindBtn.AutoButtonColor = false
+                    KeybindBtn.ZIndex = 2
+
+                    local KeybindStroke = Instance.new("UIStroke")
+                    KeybindStroke.Parent = KeybindBtn
+                    KeybindStroke.Color = Colors.GroupBorder
+                    KeybindStroke.Thickness = 1
+
+                    KeybindBtn.MouseButton1Click:Connect(function()
+                        Binding = true
+                        KeybindBtn.Text = "..."
+                    end)
+
+                    UserInputService.InputBegan:Connect(function(input)
+                        if Binding then
+                            if input.UserInputType == Enum.UserInputType.Keyboard then
+                                Key = input.KeyCode
+                                KeybindBtn.Text = Key.Name:lower()
+                                Binding = false
+                                if KeybindCallback then KeybindCallback(Key) end
+                            end
+                        elseif Key and input.UserInputType == Enum.UserInputType.Keyboard and input.KeyCode == Key then
+                            -- Toggle the state when keybind is pressed
+                            Toggled = not Toggled
+                            Box.BackgroundColor3 = Toggled and Colors.Accent or Colors.Element
+                            Label.TextColor3 = Toggled and Colors.Text or Colors.DarkText
+                            Callback(Toggled)
+                            if KeybindCallback then KeybindCallback(Key) end
+                        end
+                    end)
+                end
+                
+                -- Inline color picker button (optional)
+                local PickerBtn, CurrentColor
+                if HasColorPicker then
+                    CurrentColor = ColorDefault or Color3.fromRGB(255, 255, 255)
+                    
+                    PickerBtn = Instance.new("TextButton")
+                    PickerBtn.Name = "PickerBtn"
+                    PickerBtn.Parent = ToggleBtn
+                    PickerBtn.BackgroundColor3 = CurrentColor
+                    PickerBtn.BorderSizePixel = 0
+                    PickerBtn.Position = UDim2.new(1, -30, 0.5, -7)
+                    PickerBtn.Size = UDim2.new(0, 25, 0, 14)
+                    PickerBtn.Text = ""
+                    PickerBtn.AutoButtonColor = false
+                    PickerBtn.ZIndex = 2
+
+                    local PickerStroke = Instance.new("UIStroke")
+                    PickerStroke.Parent = PickerBtn
+                    PickerStroke.Color = Colors.GroupBorder
+                    PickerStroke.Thickness = 1
+                    
+                    -- Simple color picker popup (basic implementation)
+                    PickerBtn.MouseButton1Click:Connect(function()
+                        if ColorCallback then
+                            -- For now, just cycle through some preset colors
+                            -- You can implement a full color picker later
+                            local presets = {
+                                Color3.fromRGB(255, 255, 255),
+                                Color3.fromRGB(255, 0, 0),
+                                Color3.fromRGB(0, 255, 0),
+                                Color3.fromRGB(0, 0, 255),
+                                Color3.fromRGB(255, 255, 0),
+                                Color3.fromRGB(255, 0, 255),
+                                Color3.fromRGB(0, 255, 255),
+                            }
+                            
+                            -- Find current color index and go to next
+                            local currentIndex = 1
+                            for i, color in ipairs(presets) do
+                                if CurrentColor == color then
+                                    currentIndex = i
+                                    break
+                                end
+                            end
+                            
+                            currentIndex = (currentIndex % #presets) + 1
+                            CurrentColor = presets[currentIndex]
+                            PickerBtn.BackgroundColor3 = CurrentColor
+                            
+                            if Toggled then
+                                ColorCallback(CurrentColor)
+                            end
+                        end
+                    end)
+                end
+
                 return {
                     Set = function(self, Val)
                         Toggled = Val
                         Box.BackgroundColor3 = Toggled and Colors.Accent or Colors.Element
                         Label.TextColor3 = Toggled and Colors.Text or Colors.DarkText
                         Callback(Toggled)
-                    end
+                    end,
+                    SetKey = HasKeybind and function(self, Val)
+                        Key = Val
+                        if KeybindBtn then
+                            KeybindBtn.Text = Key and Key.Name:lower() or "none"
+                        end
+                    end or nil,
+                    SetColor = HasColorPicker and function(self, Val)
+                        CurrentColor = Val
+                        if PickerBtn then
+                            PickerBtn.BackgroundColor3 = Val
+                        end
+                    end or nil
                 }
             end
 
@@ -2010,13 +2143,13 @@ function Library:CreateWindow(Title)
 
                 local List = Instance.new("Frame")
                 List.Name = "List"
-                List.Parent = DropFrame
+                List.Parent = Window.ScreenGui  -- Parent to ScreenGui for overlay
                 List.BackgroundColor3 = Colors.Element
                 List.BorderSizePixel = 0
-                List.Position = UDim2.new(0, 0, 0, 38)
-                List.Size = UDim2.new(1, 0, 0, 0)
+                List.Position = UDim2.new(0, 0, 0, 0)  -- Will be updated dynamically
+                List.Size = UDim2.new(0, 0, 0, 0)
                 List.Visible = false
-                List.ZIndex = 10
+                List.ZIndex = 1000  -- Very high ZIndex to appear on top
 
                 local ListStroke = Instance.new("UIStroke")
                 ListStroke.Parent = List
@@ -2047,7 +2180,7 @@ function Library:CreateWindow(Title)
                         Opt.TextColor3 = Colors.DarkText
                         Opt.TextSize = 12
                         Opt.TextXAlignment = Enum.TextXAlignment.Left
-                        Opt.ZIndex = 11
+                        Opt.ZIndex = 1001  -- Higher than List
 
                         Opt.MouseButton1Click:Connect(function()
                             Selected = v
@@ -2065,14 +2198,31 @@ function Library:CreateWindow(Title)
                 Button.MouseButton1Click:Connect(function()
                     Open = not Open
                     List.Visible = Open
-                    local optCount = 0
-                    for _, child in ipairs(List:GetChildren()) do
-                        if child:IsA("TextButton") then optCount = optCount + 1 end
+                    
+                    if Open then
+                        -- Position list below button using absolute screen coordinates
+                        local buttonPos = Button.AbsolutePosition
+                        local buttonSize = Button.AbsoluteSize
+                        
+                        local optCount = 0
+                        for _, child in ipairs(List:GetChildren()) do
+                            if child:IsA("TextButton") then optCount = optCount + 1 end
+                        end
+                        
+                        List.Position = UDim2.new(0, buttonPos.X, 0, buttonPos.Y + buttonSize.Y + 2)
+                        List.Size = UDim2.new(0, buttonSize.X, 0, optCount * 18)
                     end
-                    List.Size = UDim2.new(1, 0, 0, Open and optCount * 18 or 0)
+                end)
+                
+                -- Close dropdown when scrolling
+                Page:GetPropertyChangedSignal("CanvasPosition"):Connect(function()
+                    if Open then
+                        Open = false
+                        List.Visible = false
+                    end
                 end)
 
-                return {
+                local dropdownObj = {
                     Set = function(self, Val)
                         Selected = Val
                         Button.Text = "  " .. Val:lower()
@@ -2080,12 +2230,21 @@ function Library:CreateWindow(Title)
                     end,
                     Refresh = function(self, NewOptions)
                         RebuildOptions(NewOptions)
+                    end,
+                    Close = function()
+                        Open = false
+                        List.Visible = false
                     end
                 }
+                
+                -- Register dropdown with window
+                table.insert(Window.OpenDropdowns, dropdownObj)
+                
+                return dropdownObj
             end
 
             function Groupbox:CreateKeybind(Text, Default, Callback)
-                local Key = Default or Enum.KeyCode.Delete
+                local Key = Default
                 local Binding = false
                 
                 local BindFrame = Instance.new("Frame")
@@ -2113,7 +2272,7 @@ function Library:CreateWindow(Title)
                 Button.Position = UDim2.new(1, -55, 0.5, -9)
                 Button.Size = UDim2.new(0, 55, 0, 18)
                 Button.Font = Font
-                Button.Text = Key.Name:lower()
+                Button.Text = Key and Key.Name:lower() or "none"
                 Button.TextColor3 = Colors.DarkText
                 Button.TextSize = 11
                 Button.AutoButtonColor = false
@@ -2136,7 +2295,7 @@ function Library:CreateWindow(Title)
                             Binding = false
                             Callback(Key)
                         end
-                    elseif input.UserInputType == Enum.UserInputType.Keyboard and input.KeyCode == Key then
+                    elseif Key and input.UserInputType == Enum.UserInputType.Keyboard and input.KeyCode == Key then
                         Callback(Key)
                     end
                 end)
@@ -2444,6 +2603,10 @@ local Config = Win:CreateTab("config")
 -- Spectate system
 local SpectateTarget = nil
 local SpectateCharConn = nil
+
+-- Initialize Players tab Y positions
+Players.LeftY = 0
+Players.RightY = 0
 local SpectateCamConn = nil
 
 local function StopSpectate()
@@ -3101,23 +3264,26 @@ local function GetMeleeTarget()
             local targetHum = player.Character:FindFirstChildOfClass("Humanoid")
             
             if targetHRP and targetHum and targetHum.Health > 0 then
+                local skipPlayer = false
+                
                 -- Team check
                 if MeleeAura.CheckTeam and player.Team == LocalPlayer.Team then
-                    goto continue
+                    skipPlayer = true
                 end
                 
                 -- ForceField check
                 if player.Character:FindFirstChildOfClass("ForceField") then
-                    goto continue
+                    skipPlayer = true
                 end
                 
-                local dist = (hrp.Position - targetHRP.Position).Magnitude
-                if dist < closestDist then
-                    closestDist = dist
-                    closestPlayer = player
+                if not skipPlayer then
+                    local dist = (hrp.Position - targetHRP.Position).Magnitude
+                    if dist < closestDist then
+                        closestDist = dist
+                        closestPlayer = player
+                    end
                 end
             end
-            ::continue::
         end
     end
     
@@ -3241,35 +3407,44 @@ local function GetAimbotTarget()
             local targetHum = player.Character:FindFirstChildOfClass("Humanoid")
             
             if targetPart and targetHum and targetHum.Health > 0 then
+                local skipPlayer = false
+                
                 -- Team check
                 if Aimbot.CheckTeam and player.Team == LocalPlayer.Team then
-                    goto continue
+                    skipPlayer = true
                 end
                 
                 -- ForceField check
                 if player.Character:FindFirstChildOfClass("ForceField") then
-                    goto continue
+                    skipPlayer = true
                 end
                 
                 -- Wall check
-                if Aimbot.CheckWalls then
+                if not skipPlayer and Aimbot.CheckWalls then
                     local ray = Ray.new(workspace.CurrentCamera.CFrame.Position, (targetPart.Position - workspace.CurrentCamera.CFrame.Position).Unit * 1000)
                     local hit, pos = workspace:FindPartOnRayWithIgnoreList(ray, {char, player.Character})
+                    -- If something was hit, it means there's a wall between camera and target
                     if hit then
-                        goto continue
+                        -- Check if the hit part belongs to the target player's character
+                        local hitCharacter = hit:FindFirstAncestorOfClass("Model")
+                        if hitCharacter ~= player.Character then
+                            -- Hit something that's not the target player, so they're behind a wall
+                            skipPlayer = true
+                        end
                     end
                 end
                 
-                local screenPos, onScreen = workspace.CurrentCamera:WorldToViewportPoint(targetPart.Position)
-                if onScreen then
-                    local dist = (Vector2.new(mousePos.X, mousePos.Y) - Vector2.new(screenPos.X, screenPos.Y)).Magnitude
-                    if dist < closestDist then
-                        closestDist = dist
-                        closestPlayer = player
+                if not skipPlayer then
+                    local screenPos, onScreen = workspace.CurrentCamera:WorldToViewportPoint(targetPart.Position)
+                    if onScreen then
+                        local dist = (Vector2.new(mousePos.X, mousePos.Y) - Vector2.new(screenPos.X, screenPos.Y)).Magnitude
+                        if dist < closestDist then
+                            closestDist = dist
+                            closestPlayer = player
+                        end
                     end
                 end
             end
-            ::continue::
         end
     end
     
@@ -3358,31 +3533,12 @@ table.insert(Connections, game:GetService("Players").PlayerAdded:Connect(functio
     end
 end))
 
-local Group = Legit:CreateGroupbox("per weapon configuration")
-Group:CreateToggle("enable", true, function() end)
-Group:CreateToggle("enable slider animations", false, function() end)
-Group:CreateSlider("field of view", 0, 20, 7.0, 1, function() end)
-Group:CreateDropdown("target selection", {"distance", "fov", "health"}, "distance", function() end)
-Group:CreateDropdown("hitscan", {"-", "head", "body", "all"}, "-", function() end)
+-- Initialize Legit tab Y positions
+Legit.LeftY = 0
+Legit.RightY = 0
 
--- Melee Aura UI
-local MeleeAuraGroup = Legit:CreateGroupbox("melee aura", "left")
-
-MeleeAuraGroup:CreateToggle("enabled", false, function(state)
-    MeleeAura.Enabled = state
-end)
-
-MeleeAuraGroup:CreateSlider("distance", 5, 30, 15, 0, function(value)
-    MeleeAura.Distance = value
-end)
-
-MeleeAuraGroup:CreateToggle("show animation", true, function(state)
-    MeleeAura.ShowAnimation = state
-end)
-
-MeleeAuraGroup:CreateToggle("team check", false, function(state)
-    MeleeAura.CheckTeam = state
-end)
+-- Wait for tab to be ready
+task.wait(0.1)
 
 -- Aimbot UI
 local AimbotGroup = Legit:CreateGroupbox("aimbot", "left")
@@ -3414,6 +3570,9 @@ end)
 AimbotGroup:CreateToggle("team check", false, function(state)
     Aimbot.CheckTeam = state
 end)
+
+-- Wait for layout to update
+task.wait(0.05)
 
 -- Silent Aim UI
 local SilentAimGroup = Legit:CreateGroupbox("silent aim", "right")
@@ -3455,6 +3614,35 @@ SilentAimGroup:CreateDropdown("target part", {"Closest", "Random", "Head", "Tors
     SilentAim.TargetPart = value
 end)
 
+-- Wait for layout to update
+task.wait(0.05)
+
+-- Melee Aura UI (moved to bottom)
+local MeleeAuraGroup = Legit:CreateGroupbox("melee aura", "left")
+
+MeleeAuraGroup:CreateToggle("enabled", false, function(state)
+    MeleeAura.Enabled = state
+end)
+
+MeleeAuraGroup:CreateSlider("distance", 5, 15, 15, 0, function(value)
+    MeleeAura.Distance = value
+end)
+
+MeleeAuraGroup:CreateToggle("show animation", true, function(state)
+    MeleeAura.ShowAnimation = state
+end)
+
+MeleeAuraGroup:CreateToggle("team check", false, function(state)
+    MeleeAura.CheckTeam = state
+end)
+
+-- Initialize Config tab Y positions
+Config.LeftY = 0
+Config.RightY = 0
+
+-- Wait for tab to be ready
+task.wait(0.1)
+
 local ConfigGroup = Config:CreateGroupbox("menu settings", "left")
 
 -- Folder Management Section
@@ -3468,21 +3656,48 @@ ConfigGroup:CreateButton("verify folders", function()
 end)
 
 ConfigGroup:CreateButton("open workspace folder", function()
-    if Logs then
-        print("Jebe: Workspace folder location:")
-        print("  Look for 'workspace' or 'bin/workspace' in your executor folder")
-        print("  Then navigate to: workspace/Jebe/")
-        print("")
-        print("Folder structure:")
-        for _, folder in ipairs(FolderStructure) do
-            print("  - " .. folder)
+    -- Try to open the folder using various methods
+    local success = false
+    
+    -- Method 1: Try to use explorer command (Windows)
+    if syn and syn.request then
+        local result = syn.request({
+            Url = "http://127.0.0.1:1337/openFolder",
+            Method = "POST",
+            Headers = {["Content-Type"] = "application/json"},
+            Body = game:GetService("HttpService"):JSONEncode({path = "workspace/Jebe"})
+        })
+        if result and result.Success then
+            success = true
         end
     end
-    Library:Notify("check console for folder location", 4)
+    
+    -- Method 2: Try using makefolder to ensure it exists, then notify
+    if not success and makefolder then
+        pcall(function()
+            makefolder("Jebe")
+        end)
+        
+        if Logs then
+            print("Jebe: Workspace folder location:")
+            print("  Look for 'workspace' or 'bin/workspace' in your executor folder")
+            print("  Then navigate to: workspace/Jebe/")
+            print("")
+            print("Folder structure:")
+            for _, folder in ipairs(FolderStructure) do
+                print("  - " .. folder)
+            end
+        end
+        Library:Notify("folder location printed to console", 4)
+    end
 end)
 
 ConfigGroup:CreateToggle("logs", false, function(state)
     Logs = state
+end)
+
+ConfigGroup:CreateToggle("notification sound", true, function(state)
+    NotificationSound = state
 end)
 
 ConfigGroup:CreateToggle("rainbow accent", false, function(state)
@@ -3560,139 +3775,6 @@ ConfigGroup:CreateButton("unload", function()
     if ESPImageGui then ESPImageGui:Destroy() end
     
     Library:Notify("unloaded Jebe", 3)
-end)
-
--- Config Management
-local ConfigManageGroup = Config:CreateGroupbox("config management", "right")
-
--- Display folder status
-local folderStatusText = foldersReady and "✓ folders ready" or "⚠ folders incomplete"
-ConfigManageGroup:CreateButton(folderStatusText, function()
-    local status = {}
-    if isfolder then
-        for _, folder in ipairs(FolderStructure) do
-            local exists = isfolder(folder)
-            table.insert(status, (exists and "✓" or "✗") .. " " .. folder)
-        end
-        
-        if Logs then
-            print("Jebe: Folder Status:")
-            for _, line in ipairs(status) do
-                print("  " .. line)
-            end
-        end
-        
-        Library:Notify("folder status printed to console", 3)
-    else
-        Library:Notify("isfolder not supported", 3)
-    end
-end)
-
-local ConfigNameInput = ""
-ConfigManageGroup:CreateTextbox("config name", "default", function(text)
-    ConfigNameInput = text
-end)
-
-ConfigManageGroup:CreateButton("save config", function()
-    if ConfigNameInput == "" then
-        Library:Notify("enter a config name", 3)
-        return
-    end
-    SaveConfig(ConfigNameInput)
-end)
-
-ConfigManageGroup:CreateButton("load config", function()
-    if ConfigNameInput == "" then
-        Library:Notify("enter a config name", 3)
-        return
-    end
-    LoadConfig(ConfigNameInput)
-end)
-
-ConfigManageGroup:CreateButton("delete config", function()
-    if ConfigNameInput == "" then
-        Library:Notify("enter a config name", 3)
-        return
-    end
-    DeleteConfig(ConfigNameInput)
-end)
-
-ConfigManageGroup:CreateButton("reset to default", function()
-    ResetToDefault()
-end)
-
-ConfigManageGroup:CreateButton("refresh config list", function()
-    local configs = GetConfigList()
-    Library:Notify("found " .. #configs .. " configs", 3)
-    for _, cfg in ipairs(configs) do
-        if Logs then print("Config: " .. cfg) end
-    end
-end)
-
--- Sounds
-local SoundsGroup = Config:CreateGroupbox("sounds", "left")
-
-SoundsGroup:CreateToggle("hitsound enabled", false, function(state)
-    SoundSystem.Hitsound.Enabled = state
-end)
-
-SoundsGroup:CreateDropdown("hitsound", ScanSoundFiles("Hitsounds"), "None", function(soundName)
-    SoundSystem.Hitsound.CurrentSound = soundName
-    LoadHitsound(soundName)
-end)
-
-SoundsGroup:CreateSlider("hitsound volume", 0, 1, 0.5, 2, function(value)
-    SoundSystem.Hitsound.Volume = value
-    if SoundSystem.Hitsound.SoundObject then
-        SoundSystem.Hitsound.SoundObject.Volume = value
-    end
-end)
-
-SoundsGroup:CreateSlider("hitsound cooldown", 0, 3, 0.1, 2, function(value)
-    SoundSystem.Hitsound.Cooldown = value
-end)
-
-SoundsGroup:CreateToggle("killsound enabled", false, function(state)
-    SoundSystem.Killsound.Enabled = state
-end)
-
-SoundsGroup:CreateDropdown("killsound", ScanSoundFiles("Killsounds"), "None", function(soundName)
-    SoundSystem.Killsound.CurrentSound = soundName
-    LoadKillsound(soundName)
-end)
-
-SoundsGroup:CreateSlider("killsound volume", 0, 1, 0.5, 2, function(value)
-    SoundSystem.Killsound.Volume = value
-    if SoundSystem.Killsound.SoundObject then
-        SoundSystem.Killsound.SoundObject.Volume = value
-    end
-end)
-    for obj, _ in pairs(WorldESP.Objects) do
-        RemoveWorldDrawings(obj)
-    end
-    
-    -- Clean up all ESP drawing objects
-    for _, obj in pairs(ESP.allDrawingObjects) do
-        if obj then
-            pcall(function() obj:Remove() end)
-        end
-    end
-    
-    -- Destroy ESP image GUI
-    if ESPImageGui then
-        ESPImageGui:Destroy()
-    end
-    
-    -- Destroy notification GUI
-    local notifGui = CoreGui:FindFirstChild("JebeNotificationsGui")
-    if notifGui then
-        notifGui:Destroy()
-    end
-    
-    -- Destroy main GUI
-    Win.ScreenGui:Destroy()
-    
-    if Logs then print("Jebe unloaded successfully!") end
 end)
 
 ConfigGroup:CreateButton("reload image", function()
@@ -3786,6 +3868,125 @@ ConfigGroup:CreateButton("test rebel dealer", function()
     Library:Notify("rebel dealer spawned!", 5)
 end)
 
+-- Wait for layout to update
+task.wait(0.1)
+
+-- Config Management
+local ConfigManageGroup = Config:CreateGroupbox("config management", "right")
+
+-- Display folder status
+local folderStatusText = foldersReady and "✓ folders ready" or "⚠ folders incomplete"
+ConfigManageGroup:CreateButton(folderStatusText, function()
+    local status = {}
+    if isfolder then
+        for _, folder in ipairs(FolderStructure) do
+            local exists = isfolder(folder)
+            table.insert(status, (exists and "✓" or "✗") .. " " .. folder)
+        end
+        
+        if Logs then
+            print("Jebe: Folder Status:")
+            for _, line in ipairs(status) do
+                print("  " .. line)
+            end
+        end
+        
+        Library:Notify("folder status printed to console", 3)
+    else
+        Library:Notify("isfolder not supported", 3)
+    end
+end)
+
+local ConfigNameInput = ""
+ConfigManageGroup:CreateTextbox("config name", "default", function(text)
+    ConfigNameInput = text
+end)
+
+ConfigManageGroup:CreateButton("save config", function()
+    if ConfigNameInput == "" then
+        Library:Notify("enter a config name", 3)
+        return
+    end
+    SaveConfig(ConfigNameInput)
+end)
+
+ConfigManageGroup:CreateButton("load config", function()
+    if ConfigNameInput == "" then
+        Library:Notify("enter a config name", 3)
+        return
+    end
+    LoadConfig(ConfigNameInput)
+end)
+
+ConfigManageGroup:CreateButton("delete config", function()
+    if ConfigNameInput == "" then
+        Library:Notify("enter a config name", 3)
+        return
+    end
+    DeleteConfig(ConfigNameInput)
+end)
+
+ConfigManageGroup:CreateButton("reset to default", function()
+    ResetToDefault()
+end)
+
+ConfigManageGroup:CreateButton("refresh config list", function()
+    local configs = GetConfigList()
+    Library:Notify("found " .. #configs .. " configs", 3)
+    for _, cfg in ipairs(configs) do
+        if Logs then print("Config: " .. cfg) end
+    end
+end)
+
+-- Wait for layout to update
+task.wait(0.1)
+
+-- Sounds
+local SoundsGroup = Config:CreateGroupbox("sounds", "right")
+
+SoundsGroup:CreateToggle("hitsound enabled", false, function(state)
+    SoundSystem.Hitsound.Enabled = state
+end)
+
+SoundsGroup:CreateDropdown("hitsound", ScanSoundFiles("Hitsounds"), "None", function(soundName)
+    SoundSystem.Hitsound.CurrentSound = soundName
+    LoadHitsound(soundName)
+end)
+
+SoundsGroup:CreateSlider("hitsound volume", 0, 1, 0.5, 2, function(value)
+    SoundSystem.Hitsound.Volume = value
+    if SoundSystem.Hitsound.SoundObject then
+        SoundSystem.Hitsound.SoundObject.Volume = value
+    end
+end)
+
+SoundsGroup:CreateSlider("hitsound cooldown", 0, 3, 0.1, 2, function(value)
+    SoundSystem.Hitsound.Cooldown = value
+end)
+
+SoundsGroup:CreateToggle("killsound enabled", false, function(state)
+    SoundSystem.Killsound.Enabled = state
+end)
+
+SoundsGroup:CreateDropdown("killsound", ScanSoundFiles("Killsounds"), "None", function(soundName)
+    SoundSystem.Killsound.CurrentSound = soundName
+    LoadKillsound(soundName)
+end)
+
+SoundsGroup:CreateSlider("killsound volume", 0, 1, 0.5, 2, function(value)
+    SoundSystem.Killsound.Volume = value
+    if SoundSystem.Killsound.SoundObject then
+        SoundSystem.Killsound.SoundObject.Volume = value
+    end
+end)
+
+-- Initialize Visuals tab Y positions
+Visuals.LeftY = 0
+Visuals.RightY = 0
+
+-- Wait for tab to be ready
+task.wait(0.1)
+
 local VisualsGroup = Visuals:CreateGroupbox("player esp", "left")
 
 VisualsGroup:CreateToggle("enabled", false, function(state)
@@ -3839,6 +4040,9 @@ end)
 VisualsGroup:CreateColorpicker("health full color", Color3.fromRGB(100, 255, 100), function(color)
     ESP.HealthFullColor = color
 end)
+
+-- Wait for layout to update
+task.wait(0.1)
 
 local WorldGroup = Visuals:CreateGroupbox("world esp", "right")
 
@@ -3902,7 +4106,12 @@ WorldGroup:CreateToggle("distances", false, function(state)
     WorldESP.Distances = state
 end)
 
-local MiscGroup = Misc:CreateGroupbox("miscellaneous", "left")
+-- Initialize Misc tab Y positions
+Misc.LeftY = 0
+Misc.RightY = 0
+
+-- Wait for tab to be ready
+task.wait(0.1)
 
 -- Freecam System
 local fcRunning = false
@@ -4159,9 +4368,9 @@ local function StopFreecam()
 	Library:Notify("freecam disabled", 2)
 end
 
-local FreecamGroup = Misc:CreateGroupbox("freecam", "right")
+local FreecamGroup = Misc:CreateGroupbox("freecam", "left")
 
-FreecamGroup:CreateKeybind("freecam toggle", Enum.KeyCode.KeypadMultiply, function(key)
+FreecamGroup:CreateKeybind("freecam toggle", nil, function(key)
 	if fcRunning then
 		StopFreecam()
 	else
@@ -4169,7 +4378,7 @@ FreecamGroup:CreateKeybind("freecam toggle", Enum.KeyCode.KeypadMultiply, functi
 	end
 end)
 
-FreecamGroup:CreateKeybind("freecam teleport", Enum.KeyCode.KeypadMinus, function(key)
+FreecamGroup:CreateKeybind("freecam teleport", nil, function(key)
 	if fcRunning and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
 		LocalPlayer.Character.HumanoidRootPart.CFrame = workspace.CurrentCamera.CFrame
 		StopFreecam()
@@ -4181,7 +4390,10 @@ FreecamGroup:CreateSlider("freecam speed", 0.1, 5, 1, 1, function(value)
 	Input.SetSpeed(value)
 end)
 
-local MiscGroup = Misc:CreateGroupbox("miscellaneous", "left")
+-- Wait for layout to update
+task.wait(0.1)
+
+local MiscGroup = Misc:CreateGroupbox("miscellaneous", "right")
 MiscGroup:CreateButton("rejoin", function()
     game:GetService("TeleportService"):Teleport(game.PlaceId, LocalPlayer)
 end)
@@ -4315,12 +4527,17 @@ task.spawn(function()
     end
 end)
 
+-- Wait for layout to update
+task.wait(0.1)
+
 -- Character Modifications already initialized at top of script
 
-local CharacterGroup = Misc:CreateGroupbox("character", "right")
+local CharacterGroup = Misc:CreateGroupbox("character", "left")
 
 CharacterGroup:CreateToggle("walkspeed", false, function(state)
     CharacterMods.WalkspeedEnabled = state
+end, nil, function(key)
+    -- Keybind pressed - toggle state is handled automatically by CreateToggle
 end)
 
 CharacterGroup:CreateSlider("speed", 16, 100, 35, 0, function(value)
@@ -4329,6 +4546,8 @@ end)
 
 CharacterGroup:CreateToggle("noclip", false, function(state)
     CharacterMods.NoclipEnabled = state
+end, nil, function(key)
+    -- Keybind pressed - toggle state is handled automatically by CreateToggle
 end)
 
 CharacterGroup:CreateToggle("infinite stamina", false, function(state)
@@ -4347,40 +4566,174 @@ CharacterGroup:CreateToggle("no ragdoll", false, function(state)
     CharacterMods.NoRagdoll = state
 end)
 
--- Character mods loop
+-- Infinite Stamina implementation (safer method without hooks)
+local StaminaTables = {}
+local function FindStaminaTables()
+    StaminaTables = {}
+    for i, v in pairs(getgc(true)) do
+        if type(v) == "table" and rawget(v, "S") and type(rawget(v, "S")) == "number" then
+            table.insert(StaminaTables, v)
+        end
+    end
+end
+
+local function OnLocalCharacterAdded(Character)
+    if not Character then return end
+    repeat task.wait() until Character:FindFirstChildOfClass("Humanoid")
+    
+    -- Find stamina tables when character spawns
+    FindStaminaTables()
+    
+    local Loop; Loop = RunService.Heartbeat:Connect(function()
+        if LocalPlayer.Character ~= Character then
+            Loop:Disconnect()
+            Loop = nil
+            return
+        end
+
+        if CharacterMods.InfiniteStaminaEnabled then
+            -- Method 1: Direct stamina value modification
+            for _, StaminaTable in pairs(StaminaTables) do
+                if StaminaTable and rawget(StaminaTable, "S") then
+                    StaminaTable.S = 100
+                end
+            end
+            
+            -- Method 2: Try to find stamina NumberValue in character
+            local stamina = Character:FindFirstChild("Stamina")
+            if stamina and stamina:IsA("NumberValue") then
+                stamina.Value = 100
+            end
+        end
+    end)
+end
+OnLocalCharacterAdded(LocalPlayer.Character)
+LocalPlayer.CharacterAdded:Connect(OnLocalCharacterAdded)
+
+-- Noclip loop
+table.insert(Connections, RunService.Stepped:Connect(function()
+    if not LocalPlayer.Character then return end
+    if not CharacterMods.NoclipEnabled then return end
+
+    for _,part in pairs(LocalPlayer.Character:GetDescendants()) do
+        if part:IsA("BasePart") and part.CanCollide == true then
+            part.CanCollide = false
+        end
+    end
+end))
+
+-- ALTERNATIVE WALKSPEED: CFrame-based movement instead of WalkSpeed property
+-- This bypasses anti-cheat by not touching WalkSpeed at all
+local lastPosition = nil
+local lastTick = tick()
+
 table.insert(Connections, RunService.Heartbeat:Connect(function()
     local char = LocalPlayer.Character
     if not char then return end
     
     local humanoid = char:FindFirstChildOfClass("Humanoid")
-    if not humanoid then return end
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    if not humanoid or not hrp then return end
     
-    -- Walkspeed
+    -- CFrame-based speed boost (doesn't touch WalkSpeed property)
     if CharacterMods.WalkspeedEnabled then
-        humanoid.WalkSpeed = CharacterMods.WalkspeedValue
-    end
-    
-    -- Noclip
-    if CharacterMods.NoclipEnabled then
-        for _, part in pairs(char:GetDescendants()) do
-            if part:IsA("BasePart") and part.CanCollide then
-                part.CanCollide = false
+        local moveDirection = humanoid.MoveDirection
+        if moveDirection.Magnitude > 0 then
+            local currentTick = tick()
+            local deltaTime = currentTick - lastTick
+            lastTick = currentTick
+            
+            -- Calculate speed multiplier
+            local baseSpeed = 16
+            local targetSpeed = CharacterMods.WalkspeedValue
+            local speedMultiplier = (targetSpeed - baseSpeed) / baseSpeed
+            
+            -- Apply CFrame movement
+            if speedMultiplier > 0 and deltaTime < 0.1 then
+                local moveAmount = moveDirection * baseSpeed * speedMultiplier * deltaTime
+                hrp.CFrame = hrp.CFrame + moveAmount
             end
         end
     end
     
-    -- Infinite Stamina (Criminality specific)
-    if CharacterMods.InfiniteStaminaEnabled then
-        local stamina = char:FindFirstChild("Stamina")
-        if stamina and stamina:IsA("NumberValue") then
-            stamina.Value = 100
-        end
+    -- No jump cooldown
+    if CharacterMods.NoJumpCooldown then
+        humanoid:SetStateEnabled(Enum.HumanoidStateType.Jumping, true)
     end
 end))
 
+-- Safer fall damage prevention without namecall hook
+local FallDamageConnections = {}
+local function SetupFallDamageProtection()
+    -- Clear old connections
+    for _, conn in pairs(FallDamageConnections) do
+        if conn then conn:Disconnect() end
+    end
+    FallDamageConnections = {}
+    
+    if not CharacterMods.NoFallDamage then return end
+    
+    -- Method 1: Monitor humanoid state changes
+    local char = LocalPlayer.Character
+    if char then
+        local humanoid = char:FindFirstChildOfClass("Humanoid")
+        if humanoid then
+            local conn = humanoid.StateChanged:Connect(function(oldState, newState)
+                if CharacterMods.NoFallDamage and newState == Enum.HumanoidStateType.Landed then
+                    -- Prevent fall damage by immediately changing state
+                    task.wait()
+                    if humanoid.Health > 0 then
+                        humanoid:ChangeState(Enum.HumanoidStateType.Running)
+                    end
+                end
+            end)
+            table.insert(FallDamageConnections, conn)
+        end
+        
+        -- Method 2: Monitor health changes and restore if fall damage
+        local lastHealth = humanoid and humanoid.Health or 100
+        local healthConn = RunService.Heartbeat:Connect(function()
+            if not CharacterMods.NoFallDamage then return end
+            local currentHumanoid = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+            if currentHumanoid then
+                local currentHealth = currentHumanoid.Health
+                local healthDiff = lastHealth - currentHealth
+                
+                -- If significant health loss (likely fall damage)
+                if healthDiff > 10 and currentHumanoid:GetState() == Enum.HumanoidStateType.Landed then
+                    currentHumanoid.Health = lastHealth -- Restore health
+                end
+                lastHealth = currentHealth
+            end
+        end)
+        table.insert(FallDamageConnections, healthConn)
+    end
+end
+
+-- Setup fall damage protection when character spawns
+LocalPlayer.CharacterAdded:Connect(SetupFallDamageProtection)
+if LocalPlayer.Character then
+    SetupFallDamageProtection()
+end
+
+-- Update fall damage protection when toggle changes
+local originalNoFallDamage = CharacterMods.NoFallDamage
+task.spawn(function()
+    while true do
+        task.wait(0.5)
+        if CharacterMods.NoFallDamage ~= originalNoFallDamage then
+            originalNoFallDamage = CharacterMods.NoFallDamage
+            SetupFallDamageProtection()
+        end
+    end
+end)
+
+-- Wait for layout to update
+task.wait(0.1)
+
 -- Gun Modifications already initialized at top of script
 
-local GunModsGroup = Misc:CreateGroupbox("gun mods", "left")
+local GunModsGroup = Misc:CreateGroupbox("gun mods", "right")
 
 GunModsGroup:CreateToggle("enabled", false, function(state)
     GunMods.Enabled = state
@@ -4448,9 +4801,12 @@ if RealConfig then
     end)
 end
 
+-- Wait for layout to update
+task.wait(0.1)
+
 -- Auto Pickup already initialized at top of script
 
-local AutoPickupGroup = Misc:CreateGroupbox("auto pickup", "right")
+local AutoPickupGroup = Misc:CreateGroupbox("auto pickup", "left")
 
 AutoPickupGroup:CreateToggle("enabled", false, function(state)
     AutoPickup.Enabled = state
@@ -4518,12 +4874,28 @@ if PilePickup and CashPickup then
     end))
 end
 
+-- Wait for layout to update
+task.wait(0.1)
+
 -- Hitbox Expander already initialized at top of script
 
-local HitboxGroup = Misc:CreateGroupbox("hitbox expander", "left")
+local HitboxGroup = Misc:CreateGroupbox("hitbox expander", "right")
 
 HitboxGroup:CreateToggle("enabled", false, function(state)
     HitboxExpander.Enabled = state
+    -- Reset hitboxes when disabled
+    if not state then
+        for _, player in pairs(game:GetService("Players"):GetPlayers()) do
+            if player ~= LocalPlayer and player.Character then
+                local hrp = player.Character:FindFirstChild("HumanoidRootPart")
+                if hrp then
+                    hrp.Size = Vector3.new(2, 2, 1)
+                    hrp.Transparency = 1
+                    hrp.CanCollide = false
+                end
+            end
+        end
+    end
 end)
 
 HitboxGroup:CreateSlider("size", 1, 20, 10, 0, function(value)
@@ -4536,23 +4908,30 @@ end)
 
 -- Hitbox expander loop
 table.insert(Connections, RunService.Heartbeat:Connect(function()
-    if not HitboxExpander.Enabled then return end
-    
     for _, player in pairs(game:GetService("Players"):GetPlayers()) do
         if player ~= LocalPlayer and player.Character then
             local hrp = player.Character:FindFirstChild("HumanoidRootPart")
             if hrp then
-                hrp.Size = Vector3.new(HitboxExpander.Size, HitboxExpander.Size, HitboxExpander.Size)
-                hrp.Transparency = HitboxExpander.Transparency
-                hrp.CanCollide = false
+                if HitboxExpander.Enabled then
+                    hrp.Size = Vector3.new(HitboxExpander.Size, HitboxExpander.Size, HitboxExpander.Size)
+                    hrp.Transparency = HitboxExpander.Transparency
+                    hrp.CanCollide = false
+                else
+                    hrp.Size = Vector3.new(2, 2, 1)
+                    hrp.Transparency = 1
+                    hrp.CanCollide = false
+                end
             end
         end
     end
 end))
 
+-- Wait for layout to update
+task.wait(0.1)
+
 -- FOV Changer already initialized at top of script
 
-local FOVGroup = Misc:CreateGroupbox("fov changer", "right")
+local FOVGroup = Misc:CreateGroupbox("fov changer", "left")
 
 FOVGroup:CreateToggle("enabled", false, function(state)
     FOVChanger.Enabled = state
@@ -4572,9 +4951,12 @@ table.insert(Connections, RunService.RenderStepped:Connect(function()
     end
 end))
 
+-- Wait for layout to update
+task.wait(0.1)
+
 -- Extended Zoom already initialized at top of script
 
-local ZoomGroup = Misc:CreateGroupbox("extended zoom", "left")
+local ZoomGroup = Misc:CreateGroupbox("extended zoom", "right")
 
 ZoomGroup:CreateToggle("enabled", false, function(state)
     ExtendedZoom.Enabled = state
@@ -4592,32 +4974,434 @@ ZoomGroup:CreateSlider("max distance", 8, 200, 50, 0, function(value)
     end
 end)
 
+-- Wait for layout to update
+task.wait(0.1)
+
 -- Fullbright already initialized at top of script
 
-local LightingGroup = Misc:CreateGroupbox("lighting", "right")
+local LightingGroup = Misc:CreateGroupbox("lighting", "left")
 
+-- Lighting state variables
+local LightingSettings = {
+    FullbrightEnabled = false,
+    RemoveSkybox = false,
+    ForceTime = false,
+    TimeValue = 14,
+    ExposureOverride = false,
+    ExposureValue = 1,
+    ContrastOverride = false,
+    ContrastValue = 0,
+    CustomSky = false,
+    SkyType = "Default",
+    AmbientEnabled = false,
+    AmbientColor = Color3.fromRGB(255, 255, 255),
+    OutdoorAmbientEnabled = false,
+    OutdoorAmbientColor = Color3.fromRGB(255, 255, 255)
+}
+
+local OriginalLighting = {
+    Brightness = game:GetService("Lighting").Brightness,
+    ClockTime = game:GetService("Lighting").ClockTime,
+    FogEnd = game:GetService("Lighting").FogEnd,
+    FogStart = game:GetService("Lighting").FogStart,
+    GlobalShadows = game:GetService("Lighting").GlobalShadows,
+    OutdoorAmbient = game:GetService("Lighting").OutdoorAmbient,
+    Ambient = game:GetService("Lighting").Ambient,
+    ColorShift_Bottom = game:GetService("Lighting").ColorShift_Bottom,
+    ColorShift_Top = game:GetService("Lighting").ColorShift_Top,
+    ExposureCompensation = game:GetService("Lighting").ExposureCompensation
+}
+
+-- Fullbright with proper implementation
+local FullbrightConnection
 LightingGroup:CreateToggle("fullbright", false, function(state)
-    Fullbright.Enabled = state
+    LightingSettings.FullbrightEnabled = state
+    local Lighting = game:GetService("Lighting")
+    
     if state then
-        game:GetService("Lighting").Brightness = 2
-        game:GetService("Lighting").ClockTime = 14
-        game:GetService("Lighting").FogEnd = 100000
-        game:GetService("Lighting").GlobalShadows = false
-        game:GetService("Lighting").OutdoorAmbient = Color3.fromRGB(128, 128, 128)
+        -- Apply fullbright settings
+        Lighting.Ambient = Color3.new(1, 1, 1)
+        Lighting.ColorShift_Bottom = Color3.new(1, 1, 1)
+        Lighting.ColorShift_Top = Color3.new(1, 1, 1)
+        Lighting.Brightness = 2
+        Lighting.GlobalShadows = false
+        
+        -- Remove atmosphere for fullbright
+        local atmosphere = Lighting:FindFirstChildOfClass("Atmosphere")
+        if atmosphere then
+            atmosphere:Destroy()
+        end
+        
+        -- Connect to LightingChanged to maintain fullbright
+        if FullbrightConnection then
+            FullbrightConnection:Disconnect()
+        end
+        FullbrightConnection = Lighting.Changed:Connect(function(property)
+            if LightingSettings.FullbrightEnabled then
+                if property == "Ambient" then
+                    Lighting.Ambient = Color3.new(1, 1, 1)
+                elseif property == "ColorShift_Bottom" then
+                    Lighting.ColorShift_Bottom = Color3.new(1, 1, 1)
+                elseif property == "ColorShift_Top" then
+                    Lighting.ColorShift_Top = Color3.new(1, 1, 1)
+                elseif property == "GlobalShadows" then
+                    Lighting.GlobalShadows = false
+                end
+            end
+        end)
+        
+        -- Also prevent atmosphere from being added back
+        table.insert(Connections, Lighting.ChildAdded:Connect(function(child)
+            if LightingSettings.FullbrightEnabled and child:IsA("Atmosphere") then
+                task.wait(0.05)
+                child:Destroy()
+            end
+        end))
     else
-        game:GetService("Lighting").Brightness = 1
-        game:GetService("Lighting").ClockTime = 12
-        game:GetService("Lighting").FogEnd = 100000
-        game:GetService("Lighting").GlobalShadows = true
-        game:GetService("Lighting").OutdoorAmbient = Color3.fromRGB(70, 70, 70)
+        -- Restore original lighting
+        if FullbrightConnection then
+            FullbrightConnection:Disconnect()
+            FullbrightConnection = nil
+        end
+        Lighting.Ambient = OriginalLighting.Ambient
+        Lighting.ColorShift_Bottom = OriginalLighting.ColorShift_Bottom
+        Lighting.ColorShift_Top = OriginalLighting.ColorShift_Top
+        Lighting.Brightness = OriginalLighting.Brightness
+        Lighting.GlobalShadows = OriginalLighting.GlobalShadows
     end
 end)
 
-LightingGroup:CreateToggle("no fog", false, function(state)
+-- Remove Skybox
+local OriginalSky
+LightingGroup:CreateToggle("remove skybox", false, function(state)
+    LightingSettings.RemoveSkybox = state
+    local Lighting = game:GetService("Lighting")
+    
     if state then
-        game:GetService("Lighting").FogEnd = 100000
+        -- Store original sky if it exists
+        local sky = Lighting:FindFirstChildOfClass("Sky")
+        if sky and not OriginalSky then
+            OriginalSky = sky:Clone()
+        end
+        -- Remove current sky
+        if sky then
+            sky:Destroy()
+        end
     else
-        game:GetService("Lighting").FogEnd = 500
+        -- Restore original sky
+        if OriginalSky then
+            local existingSky = Lighting:FindFirstChildOfClass("Sky")
+            if existingSky then
+                existingSky:Destroy()
+            end
+            local restored = OriginalSky:Clone()
+            restored.Parent = Lighting
+        end
+    end
+end)
+
+-- Ambient Color
+local AmbientConnection
+LightingGroup:CreateToggle("ambient color", false, function(state)
+    LightingSettings.AmbientEnabled = state
+    local Lighting = game:GetService("Lighting")
+    
+    if state then
+        Lighting.Ambient = LightingSettings.AmbientColor
+        
+        -- Maintain ambient color
+        if AmbientConnection then
+            AmbientConnection:Disconnect()
+        end
+        AmbientConnection = Lighting.Changed:Connect(function(property)
+            if LightingSettings.AmbientEnabled and property == "Ambient" then
+                Lighting.Ambient = LightingSettings.AmbientColor
+            end
+        end)
+    else
+        if AmbientConnection then
+            AmbientConnection:Disconnect()
+            AmbientConnection = nil
+        end
+        Lighting.Ambient = OriginalLighting.Ambient
+    end
+end)
+
+LightingGroup:CreateColorpicker("color", Color3.fromRGB(255, 255, 255), function(color)
+    LightingSettings.AmbientColor = color
+    if LightingSettings.AmbientEnabled then
+        game:GetService("Lighting").Ambient = color
+    end
+end)
+
+-- Outdoor Ambient Color
+local OutdoorAmbientConnection
+LightingGroup:CreateToggle("outdoor ambient color", false, function(state)
+    LightingSettings.OutdoorAmbientEnabled = state
+    local Lighting = game:GetService("Lighting")
+    
+    if state then
+        Lighting.OutdoorAmbient = LightingSettings.OutdoorAmbientColor
+        
+        -- Maintain outdoor ambient color
+        if OutdoorAmbientConnection then
+            OutdoorAmbientConnection:Disconnect()
+        end
+        OutdoorAmbientConnection = Lighting.Changed:Connect(function(property)
+            if LightingSettings.OutdoorAmbientEnabled and property == "OutdoorAmbient" then
+                Lighting.OutdoorAmbient = LightingSettings.OutdoorAmbientColor
+            end
+        end)
+    else
+        if OutdoorAmbientConnection then
+            OutdoorAmbientConnection:Disconnect()
+            OutdoorAmbientConnection = nil
+        end
+        Lighting.OutdoorAmbient = OriginalLighting.OutdoorAmbient
+    end
+end)
+
+LightingGroup:CreateColorpicker("color", Color3.fromRGB(255, 255, 255), function(color)
+    LightingSettings.OutdoorAmbientColor = color
+    if LightingSettings.OutdoorAmbientEnabled then
+        game:GetService("Lighting").OutdoorAmbient = color
+    end
+end)
+
+-- Force Time
+local ForceTimeConnection
+LightingGroup:CreateToggle("force time", false, function(state)
+    LightingSettings.ForceTime = state
+    local Lighting = game:GetService("Lighting")
+    
+    if state then
+        Lighting.ClockTime = LightingSettings.TimeValue
+        
+        -- Maintain forced time
+        if ForceTimeConnection then
+            ForceTimeConnection:Disconnect()
+        end
+        ForceTimeConnection = Lighting.Changed:Connect(function(property)
+            if LightingSettings.ForceTime and property == "ClockTime" then
+                Lighting.ClockTime = LightingSettings.TimeValue
+            end
+        end)
+    else
+        if ForceTimeConnection then
+            ForceTimeConnection:Disconnect()
+            ForceTimeConnection = nil
+        end
+        Lighting.ClockTime = OriginalLighting.ClockTime
+    end
+end)
+
+LightingGroup:CreateSlider("time", 0, 24, 14, 1, function(value)
+    LightingSettings.TimeValue = value
+    if LightingSettings.ForceTime then
+        game:GetService("Lighting").ClockTime = value
+    end
+end)
+
+-- Exposure Control
+local ExposureConnection
+LightingGroup:CreateToggle("exposure override", false, function(state)
+    LightingSettings.ExposureOverride = state
+    local Lighting = game:GetService("Lighting")
+    
+    if state then
+        Lighting.ExposureCompensation = LightingSettings.ExposureValue
+        
+        -- Maintain exposure
+        if ExposureConnection then
+            ExposureConnection:Disconnect()
+        end
+        ExposureConnection = Lighting.Changed:Connect(function(property)
+            if LightingSettings.ExposureOverride and property == "ExposureCompensation" then
+                Lighting.ExposureCompensation = LightingSettings.ExposureValue
+            end
+        end)
+    else
+        if ExposureConnection then
+            ExposureConnection:Disconnect()
+            ExposureConnection = nil
+        end
+        Lighting.ExposureCompensation = OriginalLighting.ExposureCompensation
+    end
+end)
+
+LightingGroup:CreateSlider("exposure", -3, 3, 0, 1, function(value)
+    LightingSettings.ExposureValue = value
+    if LightingSettings.ExposureOverride then
+        game:GetService("Lighting").ExposureCompensation = value
+    end
+end)
+
+-- Contrast Control
+local ContrastEffect
+local ContrastConnection
+LightingGroup:CreateToggle("contrast override", false, function(state)
+    LightingSettings.ContrastOverride = state
+    local Lighting = game:GetService("Lighting")
+    
+    if state then
+        -- Create or find ColorCorrection effect for contrast
+        ContrastEffect = Lighting:FindFirstChild("JebeContrast")
+        if not ContrastEffect then
+            ContrastEffect = Instance.new("ColorCorrectionEffect")
+            ContrastEffect.Name = "JebeContrast"
+            ContrastEffect.Parent = Lighting
+        end
+        ContrastEffect.Contrast = LightingSettings.ContrastValue
+        ContrastEffect.Enabled = true
+    else
+        if ContrastEffect then
+            ContrastEffect:Destroy()
+            ContrastEffect = nil
+        end
+    end
+end)
+
+LightingGroup:CreateSlider("contrast", -1, 1, 0, 2, function(value)
+    LightingSettings.ContrastValue = value
+    if LightingSettings.ContrastOverride and ContrastEffect then
+        ContrastEffect.Contrast = value
+    end
+end)
+
+-- Custom Sky
+LightingGroup:CreateToggle("custom sky", false, function(state)
+    LightingSettings.CustomSky = state
+    local Lighting = game:GetService("Lighting")
+    
+    if state then
+        local sky = Lighting:FindFirstChildOfClass("Sky")
+        if not sky then
+            sky = Instance.new("Sky", Lighting)
+        end
+        
+        -- Apply selected skybox
+        local skyboxes = {
+            ["Default"] = {
+                SkyboxBk = "rbxasset://sky/sky512_bk.jpg",
+                SkyboxDn = "rbxasset://sky/sky512_dn.jpg",
+                SkyboxFt = "rbxasset://sky/sky512_ft.jpg",
+                SkyboxLf = "rbxasset://sky/sky512_lf.jpg",
+                SkyboxRt = "rbxasset://sky/sky512_rt.jpg",
+                SkyboxUp = "rbxasset://sky/sky512_up.jpg"
+            },
+            ["Vaporwave"] = {
+                SkyboxBk = "rbxassetid://1417494030",
+                SkyboxDn = "rbxassetid://1417494146",
+                SkyboxFt = "rbxassetid://1417494253",
+                SkyboxLf = "rbxassetid://1417494402",
+                SkyboxRt = "rbxassetid://1417494499",
+                SkyboxUp = "rbxassetid://1417494643"
+            },
+            ["Pink"] = {
+                SkyboxBk = "rbxassetid://271042516",
+                SkyboxDn = "rbxassetid://271077243",
+                SkyboxFt = "rbxassetid://271042556",
+                SkyboxLf = "rbxassetid://271042310",
+                SkyboxRt = "rbxassetid://271042467",
+                SkyboxUp = "rbxassetid://271077958"
+            },
+            ["Void"] = {
+                SkyboxBk = "rbxassetid://161730183",
+                SkyboxDn = "rbxassetid://161730183",
+                SkyboxFt = "rbxassetid://161730183",
+                SkyboxLf = "rbxassetid://161730183",
+                SkyboxRt = "rbxassetid://161730183",
+                SkyboxUp = "rbxassetid://161730183"
+            }
+        }
+        
+        local selectedSky = skyboxes[LightingSettings.SkyType]
+        if selectedSky then
+            for prop, value in pairs(selectedSky) do
+                sky[prop] = value
+            end
+            
+            -- Special settings for Void sky
+            if LightingSettings.SkyType == "Void" then
+                sky.CelestialBodiesShown = false
+                sky.StarCount = 0
+            else
+                sky.CelestialBodiesShown = true
+                sky.StarCount = 3000
+            end
+        end
+    else
+        local sky = Lighting:FindFirstChildOfClass("Sky")
+        if sky and sky.Name ~= "Sky" then
+            sky:Destroy()
+        end
+    end
+end)
+
+LightingGroup:CreateDropdown("sky type", {"Default", "Vaporwave", "Pink", "Void"}, "Default", function(value)
+    LightingSettings.SkyType = value
+    if LightingSettings.CustomSky then
+        -- Reapply custom sky with new type
+        LightingSettings.CustomSky = false
+        task.wait()
+        LightingSettings.CustomSky = true
+        
+        local Lighting = game:GetService("Lighting")
+        local sky = Lighting:FindFirstChildOfClass("Sky")
+        if not sky then
+            sky = Instance.new("Sky", Lighting)
+        end
+        
+        local skyboxes = {
+            ["Default"] = {
+                SkyboxBk = "rbxasset://sky/sky512_bk.jpg",
+                SkyboxDn = "rbxasset://sky/sky512_dn.jpg",
+                SkyboxFt = "rbxasset://sky/sky512_ft.jpg",
+                SkyboxLf = "rbxasset://sky/sky512_lf.jpg",
+                SkyboxRt = "rbxasset://sky/sky512_rt.jpg",
+                SkyboxUp = "rbxasset://sky/sky512_up.jpg"
+            },
+            ["Vaporwave"] = {
+                SkyboxBk = "rbxassetid://1417494030",
+                SkyboxDn = "rbxassetid://1417494146",
+                SkyboxFt = "rbxassetid://1417494253",
+                SkyboxLf = "rbxassetid://1417494402",
+                SkyboxRt = "rbxassetid://1417494499",
+                SkyboxUp = "rbxassetid://1417494643"
+            },
+            ["Pink"] = {
+                SkyboxBk = "rbxassetid://271042516",
+                SkyboxDn = "rbxassetid://271077243",
+                SkyboxFt = "rbxassetid://271042556",
+                SkyboxLf = "rbxassetid://271042310",
+                SkyboxRt = "rbxassetid://271042467",
+                SkyboxUp = "rbxassetid://271077958"
+            },
+            ["Void"] = {
+                SkyboxBk = "rbxassetid://161730183",
+                SkyboxDn = "rbxassetid://161730183",
+                SkyboxFt = "rbxassetid://161730183",
+                SkyboxLf = "rbxassetid://161730183",
+                SkyboxRt = "rbxassetid://161730183",
+                SkyboxUp = "rbxassetid://161730183"
+            }
+        }
+        
+        local selectedSky = skyboxes[value]
+        if selectedSky then
+            for prop, val in pairs(selectedSky) do
+                sky[prop] = val
+            end
+            
+            -- Special settings for Void sky
+            if value == "Void" then
+                sky.CelestialBodiesShown = false
+                sky.StarCount = 0
+            else
+                sky.CelestialBodiesShown = true
+                sky.StarCount = 3000
+            end
+        end
     end
 end)
 
@@ -4649,15 +5433,42 @@ local function Cleanup()
         StopFreecam()
     end
     
+    -- Disconnect lighting connections
+    if FullbrightConnection then
+        FullbrightConnection:Disconnect()
+    end
+    if AmbientConnection then
+        AmbientConnection:Disconnect()
+    end
+    if OutdoorAmbientConnection then
+        OutdoorAmbientConnection:Disconnect()
+    end
+    if ForceTimeConnection then
+        ForceTimeConnection:Disconnect()
+    end
+    if ExposureConnection then
+        ExposureConnection:Disconnect()
+    end
+    if ContrastEffect then
+        ContrastEffect:Destroy()
+    end
+    
     -- Reset camera
     workspace.CurrentCamera.FieldOfView = 70
     LocalPlayer.CameraMaxZoomDistance = 8
     
-    -- Reset lighting
-    game:GetService("Lighting").Brightness = 1
-    game:GetService("Lighting").ClockTime = 12
-    game:GetService("Lighting").FogEnd = 100000
-    game:GetService("Lighting").GlobalShadows = true
+    -- Reset lighting to original values
+    local Lighting = game:GetService("Lighting")
+    Lighting.Brightness = OriginalLighting.Brightness
+    Lighting.ClockTime = OriginalLighting.ClockTime
+    Lighting.FogEnd = OriginalLighting.FogEnd
+    Lighting.FogStart = OriginalLighting.FogStart
+    Lighting.GlobalShadows = OriginalLighting.GlobalShadows
+    Lighting.OutdoorAmbient = OriginalLighting.OutdoorAmbient
+    Lighting.Ambient = OriginalLighting.Ambient
+    Lighting.ColorShift_Bottom = OriginalLighting.ColorShift_Bottom
+    Lighting.ColorShift_Top = OriginalLighting.ColorShift_Top
+    Lighting.ExposureCompensation = OriginalLighting.ExposureCompensation
     
     if Logs then print("Jebe: Cleaned up successfully") end
 end
